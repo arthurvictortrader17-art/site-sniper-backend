@@ -1,5 +1,3 @@
- server.js
-
 const express = require('express');
 const { chromium } = require('playwright');
 const Anthropic = require('@anthropic-ai/sdk');
@@ -8,7 +6,6 @@ require('dotenv').config();
 const app = express();
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-// ─── CORS explícito — sem depender do pacote cors ────────────────────────────
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -19,38 +16,35 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 
-// ─── Health check ─────────────────────────────────────────────────────────────
 app.get('/health', (_, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// ─── Rota principal ───────────────────────────────────────────────────────────
 app.post('/snipe', async (req, res) => {
   const { url, mode = 'full' } = req.body;
 
-  if (!url) return res.status(400).json({ error: 'URL é obrigatória.' });
+  if (!url) return res.status(400).json({ error: 'URL is required.' });
 
   let normalizedUrl = url.trim();
   if (!normalizedUrl.startsWith('http')) normalizedUrl = 'https://' + normalizedUrl;
 
   try { new URL(normalizedUrl); } catch {
-    return res.status(400).json({ error: 'URL inválida.' });
+    return res.status(400).json({ error: 'Invalid URL.' });
   }
 
   try {
-    console.log(`[Sniper] Mirando: ${normalizedUrl}`);
+    console.log(`[Sniper] Targeting: ${normalizedUrl}`);
     const screenshot = await captureScreenshot(normalizedUrl);
-    console.log(`[Sniper] Print capturado — ${Math.round(screenshot.length / 1024)} KB`);
+    console.log(`[Sniper] Screenshot captured — ${Math.round(screenshot.length / 1024)} KB`);
     const result = await analyzeWithClaude(screenshot, normalizedUrl, mode);
-    console.log(`[Sniper] Análise concluída`);
+    console.log(`[Sniper] Analysis complete`);
     res.json({ success: true, url: normalizedUrl, ...result });
   } catch (err) {
-    console.error('[Sniper] Erro:', err.message);
-    res.status(500).json({ error: err.message || 'Erro interno ao analisar o site.' });
+    console.error('[Sniper] Error:', err.message);
+    res.status(500).json({ error: err.message || 'Internal error.' });
   }
 });
 
-// ─── Captura com Playwright ───────────────────────────────────────────────────
 async function captureScreenshot(url) {
   const browser = await chromium.launch({
     headless: true,
@@ -72,7 +66,6 @@ async function captureScreenshot(url) {
   }
 }
 
-// ─── Análise com Claude Vision ────────────────────────────────────────────────
 async function analyzeWithClaude(imageBase64, url, mode) {
   const response = await client.messages.create({
     model: 'claude-opus-4-5',
@@ -82,7 +75,7 @@ async function analyzeWithClaude(imageBase64, url, mode) {
       role: 'user',
       content: [
         { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: imageBase64 } },
-        { type: 'text', text: `Analise o screenshot deste site: ${url}\nRetorne o JSON conforme as instruções.` },
+        { type: 'text', text: `Analyze the screenshot of this site: ${url}. Return the JSON as instructed.` },
       ],
     }],
   });
@@ -95,32 +88,30 @@ async function analyzeWithClaude(imageBase64, url, mode) {
   }
 }
 
-// ─── Prompts ──────────────────────────────────────────────────────────────────
 function buildSystemPrompt(mode) {
-  const base = `Você é o Site Sniper: analisa interfaces visuais de sites.
-Responda APENAS com JSON válido — sem markdown, sem texto fora do JSON.`;
+  const base = `You are Site Sniper: an AI expert in analyzing website visual interfaces.
+Reply ONLY with valid JSON — no markdown, no text outside the JSON.`;
 
   if (mode === 'prompt') {
-    return `${base}\nRetorne: { "prompt": "prompt detalhado para recriar o site no Lovable, cobrindo layout, cores hex, tipografia, componentes e espaçamentos." }`;
+    return `${base}\nReturn: { "prompt": "detailed prompt in Portuguese to recreate the site in Lovable, covering layout, hex colors, typography, components and spacing." }`;
   }
 
   return `${base}
-Retorne exatamente:
+Return exactly:
 {
-  "prompt": "prompt detalhado em português para recriar o site no Lovable",
-  "stack": "stack recomendada ex: Next.js + Tailwind CSS",
+  "prompt": "detailed prompt in Portuguese to recreate the site in Lovable or v0",
+  "stack": "recommended stack e.g.: Next.js + Tailwind CSS",
   "elements": [
-    { "type": "cor primária", "value": "#hex" },
-    { "type": "cor de fundo", "value": "#hex" },
-    { "type": "cor do texto", "value": "#hex" },
-    { "type": "fonte principal", "value": "nome da fonte" }
+    { "type": "primary color", "value": "#hex" },
+    { "type": "background color", "value": "#hex" },
+    { "type": "text color", "value": "#hex" },
+    { "type": "main font", "value": "font name" }
   ],
   "sections": [
-    { "name": "nome da seção", "description": "descrição detalhada" }
+    { "name": "section name", "description": "detailed description" }
   ]
 }`;
 }
 
-// ─── Start ────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`[Sniper] Servidor na porta ${PORT}`));
+app.listen(PORT, () => console.log(`[Sniper] Server running on port ${PORT}`));
