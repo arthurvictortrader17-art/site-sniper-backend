@@ -68,7 +68,7 @@ async function captureScreenshot(url) {
 
 async function analyzeWithClaude(imageBase64, url, mode) {
   const response = await client.messages.create({
-    model: 'claude-opus-4-5',
+   model: 'claude-3-5-sonnet-20241022',
     max_tokens: 4096,
     system: buildSystemPrompt(mode),
     messages: [{
