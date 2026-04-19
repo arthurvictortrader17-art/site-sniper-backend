@@ -1,10 +1,10 @@
 const express = require('express');
 const { chromium } = require('playwright');
-const Anthropic = require('@anthropic-ai/sdk');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 require('dotenv').config();
 
 const app = express();
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -23,25 +23,25 @@ app.get('/health', (_, res) => {
 app.post('/snipe', async (req, res) => {
   const { url, mode = 'full' } = req.body;
 
-  if (!url) return res.status(400).json({ error: 'URL is required.' });
+  if (!url) return res.status(400).json({ error: 'URL obrigatória.' });
 
   let normalizedUrl = url.trim();
   if (!normalizedUrl.startsWith('http')) normalizedUrl = 'https://' + normalizedUrl;
 
   try { new URL(normalizedUrl); } catch {
-    return res.status(400).json({ error: 'Invalid URL.' });
+    return res.status(400).json({ error: 'URL inválida.' });
   }
 
   try {
-    console.log(`[Sniper] Targeting: ${normalizedUrl}`);
+    console.log(`[Sniper] Mirando: ${normalizedUrl}`);
     const screenshot = await captureScreenshot(normalizedUrl);
-    console.log(`[Sniper] Screenshot captured — ${Math.round(screenshot.length / 1024)} KB`);
-    const result = await analyzeWithClaude(screenshot, normalizedUrl, mode);
-    console.log(`[Sniper] Analysis complete`);
+    console.log(`[Sniper] Print capturado — ${Math.round(screenshot.length / 1024)} KB`);
+    const result = await analyzeWithGemini(screenshot, normalizedUrl, mode);
+    console.log(`[Sniper] Análise concluída`);
     res.json({ success: true, url: normalizedUrl, ...result });
   } catch (err) {
-    console.error('[Sniper] Error:', err.message);
-    res.status(500).json({ error: err.message || 'Internal error.' });
+    console.error('[Sniper] Erro:', err.message);
+    res.status(500).json({ error: err.message || 'Erro interno.' });
   }
 });
 
@@ -66,21 +66,23 @@ async function captureScreenshot(url) {
   }
 }
 
-async function analyzeWithClaude(imageBase64, url, mode) {
-  const response = await client.messages.create({
-   model: 'claude-3-5-sonnet-20241022',
-    max_tokens: 4096,
-    system: buildSystemPrompt(mode),
-    messages: [{
-      role: 'user',
-      content: [
-        { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: imageBase64 } },
-        { type: 'text', text: `Analyze the screenshot of this site: ${url}. Return the JSON as instructed.` },
-      ],
-    }],
-  });
+async function analyzeWithGemini(imageBase64, url, mode) {
+  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
-  const text = response.content.map(c => c.text || '').join('');
+  const prompt = buildPrompt(mode, url);
+
+  const result = await model.generateContent([
+    prompt,
+    {
+      inlineData: {
+        mimeType: 'image/jpeg',
+        data: imageBase64,
+      },
+    },
+  ]);
+
+  const text = result.response.text();
+
   try {
     return JSON.parse(text.replace(/```json|```/g, '').trim());
   } catch {
@@ -88,30 +90,32 @@ async function analyzeWithClaude(imageBase64, url, mode) {
   }
 }
 
-function buildSystemPrompt(mode) {
-  const base = `You are Site Sniper: an AI expert in analyzing website visual interfaces.
-Reply ONLY with valid JSON — no markdown, no text outside the JSON.`;
+function buildPrompt(mode, url) {
+  const base = `Você é o Site Sniper: especialista em analisar interfaces visuais de sites.
+Analise o screenshot do site ${url} com atenção de um designer sênior.
+Responda APENAS com JSON válido — sem markdown, sem texto fora do JSON.`;
 
   if (mode === 'prompt') {
-    return `${base}\nReturn: { "prompt": "detailed prompt in Portuguese to recreate the site in Lovable, covering layout, hex colors, typography, components and spacing." }`;
+    return `${base}
+Retorne: { "prompt": "prompt detalhado em português para recriar o site no Lovable, cobrindo layout, cores hex, tipografia, componentes e espaçamentos." }`;
   }
 
   return `${base}
-Return exactly:
+Retorne exatamente:
 {
-  "prompt": "detailed prompt in Portuguese to recreate the site in Lovable or v0",
-  "stack": "recommended stack e.g.: Next.js + Tailwind CSS",
+  "prompt": "prompt detalhado em português para recriar o site no Lovable ou v0",
+  "stack": "stack recomendada ex: Next.js + Tailwind CSS",
   "elements": [
-    { "type": "primary color", "value": "#hex" },
-    { "type": "background color", "value": "#hex" },
-    { "type": "text color", "value": "#hex" },
-    { "type": "main font", "value": "font name" }
+    { "type": "cor primária", "value": "#hex" },
+    { "type": "cor de fundo", "value": "#hex" },
+    { "type": "cor do texto", "value": "#hex" },
+    { "type": "fonte principal", "value": "nome da fonte" }
   ],
   "sections": [
-    { "name": "section name", "description": "detailed description" }
+    { "name": "nome da seção", "description": "descrição detalhada" }
   ]
 }`;
 }
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`[Sniper] Server running on port ${PORT}`));
+app.listen(PORT, () => console.log(`[Sniper] Servidor na porta ${PORT}`));
